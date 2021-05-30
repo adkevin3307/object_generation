@@ -12,6 +12,16 @@ from Net import Generator, Discriminator
 from Evaluator import Evaluator
 
 
+def weights_init_normal(m):
+    name = m.__class__.__name__
+
+    if 'Conv' in name:
+        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif 'BatchNorm2d' in name:
+        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+        torch.nn.init.constant_(m.bias.data, 0.0)
+
+
 def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator) -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -63,6 +73,12 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             # train discriminator
             discriminator_optimizer.zero_grad()
+
+            noise = torch.cat([torch.randn(image.shape[1:]).unsqueeze(0) for i in range(batch_size)], dim=0).to(device)
+
+            noise_ratio = 0.15
+            noise_ratio = noise_ratio if torch.rand(1) > 0.5 else 0
+            image = image * (1 - noise_ratio) + noise * noise_ratio
 
             # loss for real images
             real_validity, real_label = discriminator(image)
@@ -129,7 +145,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
         print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}')
 
 
-def test(latent_dim: int, generator: Generator, test_loader: DataLoader, evaluator: Evaluator):
+def test(latent_dim: int, generator: Generator, test_loader: DataLoader, evaluator: Evaluator) -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     accuracy = 0.0
@@ -173,6 +189,9 @@ if __name__ == '__main__':
 
     generator = Generator(args.latent, 64)
     discriminator = Discriminator(64)
+
+    generator.apply(weights_init_normal)
+    discriminator.apply(weights_init_normal)
 
     generator_optimizer = optim.Adam(generator.parameters(), lr=1e-3)
     discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=1e-3)
