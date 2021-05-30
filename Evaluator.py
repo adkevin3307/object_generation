@@ -31,37 +31,46 @@ e.g. [[1,1,0,...,0],[0,1,1,0,...],...]
 ==============================================================='''
 
 
-class evaluation_model():
-    def __init__(self):
+class Evaluator:
+    def __init__(self, path: str) -> None:
         # modify the path to your own path
-        checkpoint = torch.load('logs/classifier/checkpoint.pth')
+        self.classnum = 24
+        checkpoint = torch.load(path)
+
         self.resnet18 = models.resnet18(pretrained=False)
         self.resnet18.fc = nn.Sequential(
-            nn.Linear(512, 24),
+            nn.Linear(512, self.classnum),
             nn.Sigmoid()
         )
+
         self.resnet18.load_state_dict(checkpoint['model'])
         self.resnet18 = self.resnet18.cuda()
-        self.resnet18.eval()
-        self.classnum = 24
 
-    def compute_acc(self, out, onehot_labels):
-        batch_size = out.size(0)
-        acc = 0
+        self.resnet18.eval()
+
+    def compute_acc(self, out: torch.Tensor, onehot_labels: torch.Tensor) -> float:
+        batch_size = out.shape[0]
+
+        accuracy = 0
         total = 0
+
         for i in range(batch_size):
             k = int(onehot_labels[i].sum().item())
             total += k
-            outv, outi = out[i].topk(k)
-            lv, li = onehot_labels[i].topk(k)
-            for j in outi:
-                if j in li:
-                    acc += 1
-        return acc / total
 
-    def eval(self, images, labels):
+            _, image_index = out[i].topk(k)
+            _, label_index = onehot_labels[i].topk(k)
+
+            for j in image_index:
+                if j in label_index:
+                    accuracy += 1
+
+        return (accuracy / total)
+
+    def eval(self, images: torch.Tensor, labels: torch.Tensor) -> float:
         with torch.no_grad():
             # your image shape should be (batch, 3, 64, 64)
-            out = self.resnet18(images)
-            acc = self.compute_acc(out.cpu(), labels.cpu())
-            return acc
+            gen_images = self.resnet18(images)
+            accuracy = self.compute_acc(gen_images.cpu(), labels.cpu())
+
+            return accuracy
