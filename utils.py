@@ -23,12 +23,14 @@ def parse() -> argparse.Namespace:
 def load_data(root_folder: str) -> tuple:
     train_transform = transforms.Compose([
         transforms.Resize((64, 64)),
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
 
     test_transform = transforms.Compose([
         transforms.Resize((64, 64)),
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
 
     train_set = ICLEVRDataset(root_folder, transform=train_transform, mode='train')
