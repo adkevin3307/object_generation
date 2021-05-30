@@ -1,4 +1,6 @@
-__pycache__/
 .vim/
+__pycache__/
 images/
+weights/generator/
+weights/discriminator/
 Pipfile*
