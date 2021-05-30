@@ -10,6 +10,8 @@ def parse() -> argparse.Namespace:
     parser.add_argument('--root_folder', type=str, required=True)
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--latent', type=int, default=100)
+    parser.add_argument('--trainable', action='store_true', default=False)
+    parser.add_argument('--load', type=str, default=None)
     args = parser.parse_args()
 
     print('=' * 100)
