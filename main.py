@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn.functional import one_hot
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
@@ -60,7 +61,14 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             generator_optimizer.zero_grad()
 
             latent = torch.tensor(np.random.normal(0, 1, (batch_size, latent_dim)), dtype=torch.float).to(device)
-            gen_label = torch.tensor(np.random.randint(0, 24, (batch_size, 24)), dtype=torch.float).to(device)
+
+            gen_label = []
+            for _ in range(batch_size):
+                object_amount = np.random.randint(1, 24, 1)
+                temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
+                temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
+                gen_label.append(temp_gen_label.sum(0).view(1, -1))
+            gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
 
             gen_image = generator(latent, label)
             validity, pred_label = discriminator(gen_image)
@@ -74,7 +82,10 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             # train discriminator
             discriminator_optimizer.zero_grad()
 
-            noise = torch.cat([torch.randn(image.shape[1:]).unsqueeze(0) for i in range(batch_size)], dim=0).to(device)
+            noise = []
+            for _ in range(batch_size):
+                noise.append(torch.randn(image.shape[1:]).unsqueeze(0))
+            noise = torch.cat(noise, dim=0).to(device)
 
             noise_ratio = 0.15
             noise_ratio = noise_ratio if torch.rand(1) > 0.5 else 0
