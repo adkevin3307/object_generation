@@ -13,7 +13,7 @@ from Net import Generator, Discriminator
 from Evaluator import Evaluator
 
 
-def weights_init_normal(m):
+def init_weights(m):
     name = m.__class__.__name__
 
     if 'Conv' in name:
@@ -21,6 +21,29 @@ def weights_init_normal(m):
     elif 'BatchNorm2d' in name:
         torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
         torch.nn.init.constant_(m.bias.data, 0.0)
+
+
+def save_images(n: int, latent_dim: int, generator: Generator, name: str) -> None:
+    """Saves a grid of generated digits ranging from 0 to n_classes"""
+
+    os.makedirs('images', exist_ok=True)
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Sample noise
+    latent = torch.tensor(np.random.normal(0, 1, (n ** 2, latent_dim)), dtype=torch.float).to(device)
+    # Get labels ranging from 0 to n_classes for n rows
+    gen_label = []
+    for _ in range(n ** 2):
+        object_amount = np.random.randint(1, 24, 1)
+        temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
+        temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
+        gen_label.append(temp_gen_label.sum(0).view(1, -1))
+    gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
+
+    gen_image = generator(latent, gen_label)
+
+    save_image(gen_image.data, f'images/{name}.png', nrow=n, normalize=True)
 
 
 def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator) -> None:
@@ -82,15 +105,6 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             # train discriminator
             discriminator_optimizer.zero_grad()
 
-            noise = []
-            for _ in range(batch_size):
-                noise.append(torch.randn(image.shape[1:]).unsqueeze(0))
-            noise = torch.cat(noise, dim=0).to(device)
-
-            noise_ratio = 0.15
-            noise_ratio = noise_ratio if torch.rand(1) > 0.5 else 0
-            image = image * (1 - noise_ratio) + noise * noise_ratio
-
             # loss for real images
             real_validity, real_label = discriminator(image)
             real_loss = (adversarial_loss(real_validity, valid) + auxiliary_loss(real_label, label)) / 2
@@ -130,21 +144,15 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             print(f'\r{message}', end='')
 
-            batches_done = epoch * len(train_loader) + i
-            if batches_done % 400 == 0:
-                """Saves a grid of generated digits ranging from 0 to n_classes"""
+            batch_amount = epoch * len(train_loader) + i
+            if batch_amount % 400 == 0:
+                os.makedirs('weights/generator', exist_ok=True)
+                os.makedirs('weights/discriminator', exist_ok=True)
 
-                amount = 10
-                os.makedirs('images', exist_ok=True)
+                torch.save(generator, f'weights/generator/generator_{batch_amount}.pth')
+                torch.save(discriminator, f'weights/discriminator/discriminator_{batch_amount}.pth')
 
-                # Sample noise
-                z = torch.tensor(np.random.normal(0, 1, (amount ** 2, latent_dim)), dtype=torch.float).to(device)
-                # Get labels ranging from 0 to n_classes for n rows
-                labels = torch.tensor(np.random.randint(0, 24, (amount ** 2, 24)), dtype=torch.float).to(device)
-
-                gen_image = generator(z, labels)
-
-                save_image(gen_image.data, f'images/{batches_done}.png', nrow=amount, normalize=True)
+                save_images(10, latent_dim, generator, f'{batch_amount}')
 
         g_loss /= len(train_loader)
         d_loss /= len(train_loader)
@@ -201,11 +209,11 @@ if __name__ == '__main__':
     generator = Generator(args.latent, 64)
     discriminator = Discriminator(64)
 
-    generator.apply(weights_init_normal)
-    discriminator.apply(weights_init_normal)
+    generator.apply(init_weights)
+    discriminator.apply(init_weights)
 
-    generator_optimizer = optim.Adam(generator.parameters(), lr=1e-3)
-    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=1e-3)
+    generator_optimizer = optim.Adam(generator.parameters(), lr=5e-4)
+    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=5e-4)
 
     adversarial_loss = nn.BCELoss()
     auxiliary_loss = nn.BCELoss()
@@ -221,5 +229,8 @@ if __name__ == '__main__':
         train_loader=train_loader,
         evaluator=evaluator
     )
+
+    torch.save(generator, 'weights/generator/generator_final.pth')
+    torch.save(discriminator, 'weights/discriminator/discriminator_final.pth')
 
     test(args.latent, generator, test_loader, evaluator)
