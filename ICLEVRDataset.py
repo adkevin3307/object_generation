@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 from PIL import Image
+from typing import Callable
 import torch
 from torch.utils.data import Dataset
 
@@ -34,9 +35,9 @@ def get_iCLEVR_data(root_folder, mode):
 
 
 class ICLEVRDataset(Dataset):
-    def __init__(self, root_folder, transforms=None, mode='train'):
+    def __init__(self, root_folder: str, transform: Callable = None, mode: str = 'train') -> None:
         self.root_folder = root_folder
-        self.transforms = transforms
+        self.transform = transform
         self.mode = mode
 
         self.num_classes = 24
@@ -59,8 +60,8 @@ class ICLEVRDataset(Dataset):
             image = Image.new('RGB', png.size, (255, 255, 255))
             image.paste(png, mask=png.split()[3])
 
-            if self.transforms:
-                image = self.transforms(image)
+            if self.transform:
+                image = self.transform(image)
 
         label = self.label_list[index]
 
