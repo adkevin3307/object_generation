@@ -28,7 +28,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
     generator, discriminator = model[0], model[1]
     generator_optimizer, discriminator_optimizer = optimizer[0], optimizer[1]
-    adversarial_loss, auxiliary_loss = criterion[0], criterion[1]
+    adversarial_criterion, auxiliary_criterion = criterion[0], criterion[1]
 
     generator = generator.to(device)
     discriminator = discriminator.to(device)
@@ -67,7 +67,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             gen_image = generator(latent, label)
             validity, pred_label = discriminator(gen_image)
 
-            temp_g_loss = 0.5 * (adversarial_loss(validity, valid) + auxiliary_loss(pred_label, gen_label))
+            temp_g_loss = 0.5 * (adversarial_criterion(validity, valid) + auxiliary_criterion(pred_label, gen_label))
             g_loss += temp_g_loss.item()
 
             temp_g_loss.backward()
@@ -82,11 +82,11 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             # loss for real images
             real_validity, real_label = discriminator(image)
-            real_loss = (adversarial_loss(real_validity, valid) + auxiliary_loss(real_label, label)) / 2
+            real_loss = (adversarial_criterion(real_validity, valid) + auxiliary_criterion(real_label, label)) / 2
 
             # loss for fake images
             fake_validity, fake_label = discriminator(gen_image.detach())
-            fake_loss = (adversarial_loss(fake_validity, fake) + auxiliary_loss(fake_label, gen_label)) / 2
+            fake_loss = (adversarial_criterion(fake_validity, fake) + auxiliary_criterion(fake_label, gen_label)) / 2
 
             # total discriminator loss
             temp_d_loss = (real_loss + fake_loss) / 2
