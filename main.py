@@ -30,17 +30,17 @@ if __name__ == '__main__':
 
     train_loader, test_loader = load_data(args.root_folder)
 
-    generator = Generator(args.latent, 64)
-    discriminator = Discriminator(64)
+    generator = Generator(args.latent, image_size=64)
+    discriminator = Discriminator(image_size=64)
 
     generator.apply(init_weights)
     discriminator.apply(init_weights)
 
-    generator_optimizer = optim.Adam(generator.parameters(), lr=5e-4)
-    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=5e-4)
+    generator_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=2e-4, betas=(0.5, 0.999))
 
-    adversarial_loss = nn.BCELoss()
-    auxiliary_loss = nn.BCELoss()
+    adversarial_criterion = nn.BCELoss()
+    auxiliary_criterion = nn.BCELoss()
 
     evaluator = Evaluator('./weights/classifier_weight.pth')
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
             latent_dim=args.latent,
             model=(generator, discriminator),
             optimizer=(generator_optimizer, discriminator_optimizer),
-            criterion=(adversarial_loss, auxiliary_loss),
+            criterion=(adversarial_criterion, auxiliary_criterion),
             train_loader=train_loader,
             evaluator=evaluator
         )
