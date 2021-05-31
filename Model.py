@@ -9,6 +9,20 @@ from Net import Generator
 from Evaluator import Evaluator
 
 
+def gen_labels(n: int) -> torch.Tensor:
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    gen_label = []
+    for _ in range(n):
+        object_amount = np.random.randint(1, 4, 1)
+        temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
+        temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
+        gen_label.append(temp_gen_label.sum(0).view(1, -1))
+    gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
+
+    return gen_label
+
+
 def save_images(n: int, latent_dim: int, generator: Generator, name: str) -> None:
     """Saves a grid of generated digits ranging from 0 to n_classes"""
 
@@ -19,13 +33,7 @@ def save_images(n: int, latent_dim: int, generator: Generator, name: str) -> Non
     # Sample noise
     latent = torch.tensor(np.random.normal(0, 1, (n ** 2, latent_dim)), dtype=torch.float).to(device)
     # Get labels ranging from 0 to n_classes for n rows
-    gen_label = []
-    for _ in range(n ** 2):
-        object_amount = np.random.randint(1, 24, 1)
-        temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
-        temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
-        gen_label.append(temp_gen_label.sum(0).view(1, -1))
-    gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
+    gen_label = gen_labels(n ** 2)
 
     gen_image = generator(latent, gen_label)
 
@@ -71,13 +79,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             latent = torch.tensor(np.random.normal(0, 1, (batch_size, latent_dim)), dtype=torch.float).to(device)
 
-            gen_label = []
-            for _ in range(batch_size):
-                object_amount = np.random.randint(1, 24, 1)
-                temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
-                temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
-                gen_label.append(temp_gen_label.sum(0).view(1, -1))
-            gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
+            gen_label = gen_labels(batch_size)
 
             gen_image = generator(latent, label)
             validity, pred_label = discriminator(gen_image)
@@ -87,6 +89,10 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             temp_g_loss.backward()
             generator_optimizer.step()
+
+            # calculate generator accuracy
+            temp_g_accuracy = evaluator.eval(gen_image, label)
+            g_accuracy += temp_g_accuracy
 
             # train discriminator
             discriminator_optimizer.zero_grad()
@@ -105,10 +111,6 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             temp_d_loss.backward()
             discriminator_optimizer.step()
-
-            # calculate generator accuracy
-            temp_g_accuracy = evaluator.eval(gen_image, label)
-            g_accuracy += temp_g_accuracy
 
             # calculate discriminator accuracy
             pred = (torch.cat([real_label, fake_label], dim=0) > 0.5).type(torch.long)
