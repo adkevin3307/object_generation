@@ -123,6 +123,8 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
                 torch.save(generator, f'weights/generator/generator_{batch_amount}.pth')
                 torch.save(discriminator, f'weights/discriminator/discriminator_{batch_amount}.pth')
 
+                os.makedirs('images', exist_ok=True)
+
                 save_image(gen_image.data, f'images/{batch_amount}.png', nrow=8, normalize=True)
 
         g_loss /= len(train_loader)
