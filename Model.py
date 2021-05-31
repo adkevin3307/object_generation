@@ -9,7 +9,7 @@ from Net import Generator
 from Evaluator import Evaluator
 
 
-def gen_labels(n: int) -> torch.Tensor:
+def _gen_labels(n: int) -> torch.Tensor:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     gen_label = []
@@ -21,23 +21,6 @@ def gen_labels(n: int) -> torch.Tensor:
     gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
 
     return gen_label
-
-
-def save_images(n: int, latent_dim: int, generator: Generator, name: str) -> None:
-    """Saves a grid of generated digits ranging from 0 to n_classes"""
-
-    os.makedirs('images', exist_ok=True)
-
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    # Sample noise
-    latent = torch.tensor(np.random.normal(0, 1, (n ** 2, latent_dim)), dtype=torch.float).to(device)
-    # Get labels ranging from 0 to n_classes for n rows
-    gen_label = gen_labels(n ** 2)
-
-    gen_image = generator(latent, gen_label)
-
-    save_image(gen_image.data, f'images/{name}.png', nrow=n, normalize=True)
 
 
 def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator) -> None:
@@ -79,7 +62,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             latent = torch.tensor(np.random.normal(0, 1, (batch_size, latent_dim)), dtype=torch.float).to(device)
 
-            gen_label = gen_labels(batch_size)
+            gen_label = _gen_labels(batch_size)
 
             gen_image = generator(latent, label)
             validity, pred_label = discriminator(gen_image)
@@ -133,14 +116,14 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             print(f'\r{message}', end='')
 
             batch_amount = epoch * len(train_loader) + i
-            if batch_amount % 400 == 0:
+            if batch_amount % 500 == 0:
                 os.makedirs('weights/generator', exist_ok=True)
                 os.makedirs('weights/discriminator', exist_ok=True)
 
                 torch.save(generator, f'weights/generator/generator_{batch_amount}.pth')
                 torch.save(discriminator, f'weights/discriminator/discriminator_{batch_amount}.pth')
 
-                save_images(10, latent_dim, generator, f'{batch_amount}')
+                save_image(gen_image.data, f'images/{batch_amount}.png', nrow=8, normalize=True)
 
         g_loss /= len(train_loader)
         d_loss /= len(train_loader)
