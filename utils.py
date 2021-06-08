@@ -1,3 +1,4 @@
+import os
 import argparse
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -39,7 +40,8 @@ def load_data(root_folder: str) -> tuple:
     train_set = ICLEVRDataset(root_folder, transform=train_transform, mode='train')
     test_set = ICLEVRDataset(root_folder, transform=test_transform, mode='test')
 
-    train_loader = DataLoader(train_set, 64, shuffle=True, num_workers=8)
-    test_loader = DataLoader(test_set, 64, shuffle=False, num_workers=8)
+    num_workers = len(os.sched_getaffinity(0))
+    train_loader = DataLoader(train_set, 64, shuffle=True, num_workers=num_workers)
+    test_loader = DataLoader(test_set, 64, shuffle=False, num_workers=num_workers)
 
     return (train_loader, test_loader)
