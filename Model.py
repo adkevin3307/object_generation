@@ -1,11 +1,11 @@
 import os
 import numpy as np
+from typing import Any
 import torch
 from torch.nn.functional import one_hot
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
-from Net import Generator
 from Evaluator import Evaluator
 
 
@@ -18,6 +18,9 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
     generator = generator.to(device)
     discriminator = discriminator.to(device)
+
+    generator_name = generator._get_name()
+    discriminator_name = discriminator._get_name()
 
     for epoch in range(epochs):
         generator.train()
@@ -43,9 +46,6 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             fake = torch.tensor(np.zeros((batch_size, 1)), dtype=torch.float).to(device)
             fake.requires_grad = False
 
-            # train generator
-            generator_optimizer.zero_grad()
-
             latent = torch.tensor(np.random.normal(0, 1, (batch_size, latent_dim)), dtype=torch.float).to(device)
 
             gen_label = []
@@ -56,42 +56,96 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
                 gen_label.append(temp_gen_label.sum(0).view(1, -1))
             gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
 
+            generator_optimizer.zero_grad()
+
             gen_image = generator(latent, label)
-            validity, pred_label = discriminator(gen_image)
 
-            temp_g_loss = 0.5 * (adversarial_criterion(validity, valid) + auxiliary_criterion(pred_label, gen_label))
-            g_loss += temp_g_loss.item()
+            if generator_name == 'ACGAN_Generator':
+                validity, pred_label = discriminator(gen_image)
 
-            temp_g_loss.backward()
-            generator_optimizer.step()
+                temp_g_loss = 0.5 * (adversarial_criterion(validity, valid) + auxiliary_criterion(pred_label, gen_label))
+                g_loss += temp_g_loss.item()
 
-            # calculate generator accuracy
+                temp_g_loss.backward()
+                generator_optimizer.step()
+
+            elif generator_name == 'WGAN_Generator':
+                temp_g_loss = torch.zeros(1)
+
+                if (i + 1) % 5 == 0:
+                    validity = discriminator(gen_image, label)
+
+                    temp_g_loss = -1.0 * torch.mean(validity)
+                    g_loss += temp_g_loss.item()
+
+                    temp_g_loss.backward()
+                    generator_optimizer.step()
+            else:
+                raise NotImplementedError('generator loss and accuracy not implemented')
+
             temp_g_accuracy = evaluator.eval(gen_image, label)
             g_accuracy += temp_g_accuracy
 
-            # train discriminator
             discriminator_optimizer.zero_grad()
 
-            # loss for real images
-            real_validity, real_label = discriminator(image)
-            real_loss = (adversarial_criterion(real_validity, valid) + auxiliary_criterion(real_label, label)) / 2
+            if discriminator_name == 'ACGAN_Discriminator':
+                real_validity, real_label = discriminator(image)
+                real_loss = (adversarial_criterion(real_validity, valid) + auxiliary_criterion(real_label, label)) / 2
 
-            # loss for fake images
-            fake_validity, fake_label = discriminator(gen_image.detach())
-            fake_loss = (adversarial_criterion(fake_validity, fake) + auxiliary_criterion(fake_label, gen_label)) / 2
+                fake_validity, fake_label = discriminator(gen_image.detach())
+                fake_loss = (adversarial_criterion(fake_validity, fake) + auxiliary_criterion(fake_label, gen_label)) / 2
 
-            # total discriminator loss
-            temp_d_loss = (real_loss + fake_loss) / 2
-            d_loss += temp_d_loss.item()
+                temp_d_loss = (real_loss + fake_loss) / 2
+                d_loss += temp_d_loss.item()
 
-            temp_d_loss.backward()
-            discriminator_optimizer.step()
+                temp_d_loss.backward()
+                discriminator_optimizer.step()
 
-            # calculate discriminator accuracy
-            pred = (torch.cat([real_label, fake_label], dim=0) > 0.5).type(torch.long)
-            truth = torch.cat([label, gen_label], dim=0)
+                pred = (torch.cat([real_label, fake_label], dim=0) > 0.5).type(torch.long)
+                truth = torch.cat([label, gen_label], dim=0)
 
-            temp_d_accuracy = (torch.sum(torch.logical_and((pred == truth), (truth == 1))) / torch.sum(truth == 1)).item()
+                temp_d_accuracy = (torch.sum(torch.logical_and((pred == truth), (truth == 1))) / torch.sum(truth == 1)).item()
+
+            elif discriminator_name == 'WGAN_Discriminator':
+                real_image = torch.clone(image).to(device)
+                real_image.requires_grad = True
+
+                real_validity = discriminator(real_image, label)
+
+                if torch.rand(1) > 0.5:
+                    fake_image = real_image
+                    fake_label = gen_label
+                else:
+                    fake_image = generator(latent, label)
+                    fake_label = label
+
+                fake_validity = discriminator(fake_image, fake_label)
+
+                real_grad_out = torch.ones(real_validity.shape).to(device)
+                real_grad_out.requires_grad = False
+
+                real_grad = torch.autograd.grad(real_validity, real_image, real_grad_out, retain_graph=True, create_graph=True, only_inputs=True)[0]
+                real_grad_norm = torch.sum(real_grad.view(real_grad.shape[0], -1) ** 2, dim=1) ** 3
+
+                fake_grad_out = torch.ones(fake_validity.shape).to(device)
+                fake_grad_out.requires_grad = False
+
+                fake_grad = torch.autograd.grad(fake_validity, fake_image, fake_grad_out, retain_graph=True, create_graph=True, only_inputs=True)[0]
+                fake_grad_norm = torch.sum(fake_grad.view(fake_grad.shape[0], -1) ** 2, dim=1) ** 3
+
+                temp_d_loss = -1.0 * torch.mean(real_validity) + torch.mean(fake_validity) + torch.mean(real_grad_norm + fake_grad_norm)
+                d_loss += temp_d_loss.item()
+
+                temp_d_loss.backward()
+                discriminator_optimizer.step()
+
+                pred = (torch.cat([real_validity, fake_validity], dim=0) > 0.5).type(torch.long)
+                truth = torch.cat([torch.ones(real_validity.shape), torch.zeros(fake_validity.shape)], dim=0).to(device)
+
+                temp_d_accuracy = torch.sum(pred == truth).item() / truth.shape[0]
+            else:
+                raise NotImplementedError('discriminator loss and accuracy not implemented')
+
             d_accuracy += temp_d_accuracy
 
             # progress bar
@@ -129,7 +183,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
         print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}')
 
 
-def test(latent_dim: int, generator: Generator, test_loader: DataLoader, evaluator: Evaluator) -> None:
+def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Evaluator) -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     accuracy = 0.0

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from utils import parse, load_data
-from Net import Generator, Discriminator
+from Net import ACGAN_Generator, ACGAN_Discriminator, WGAN_Generator, WGAN_Discriminator
 from Evaluator import Evaluator
 from Model import train, test
 
@@ -30,8 +30,14 @@ if __name__ == '__main__':
 
     train_loader, test_loader = load_data(args.root_folder)
 
-    generator = Generator(args.latent, image_size=64)
-    discriminator = Discriminator(image_size=64)
+    if args.net == 'ACGAN':
+        generator = ACGAN_Generator(args.latent, image_size=64)
+        discriminator = ACGAN_Discriminator(image_size=64)
+    elif args.net == 'WGAN':
+        generator = WGAN_Generator(args.latent, image_size=64)
+        discriminator = WGAN_Discriminator(image_size=64)
+    else:
+        raise NotImplementedError('net architecture not implemented')
 
     generator.apply(init_weights)
     discriminator.apply(init_weights)
