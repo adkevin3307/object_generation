@@ -10,7 +10,7 @@ def parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_folder', type=str, required=True)
     parser.add_argument('--net', type=str, default='WGAN', choices=['WGAN', 'ACGAN'])
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--latent', type=int, default=100)
     parser.add_argument('--trainable', action='store_true', default=False)
     parser.add_argument('--load', type=str, default=None)
