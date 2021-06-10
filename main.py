@@ -1,4 +1,5 @@
 import os
+import shutil
 import random
 import numpy as np
 import torch
@@ -66,9 +67,22 @@ if __name__ == '__main__':
     model.load(args.load_generator, args.load_discriminator)
 
     if args.trainable:
-        os.makedirs('images', exist_ok=True)
-        os.makedirs('weights/generator', exist_ok=True)
-        os.makedirs('weights/discriminator', exist_ok=True)
+        image_folder = 'images'
+        generator_folder = 'weights/generator'
+        discriminator_folder = 'weights/discriminator'
+
+        if os.path.exists(image_folder):
+            shutil.rmtree(image_folder)
+
+        if os.path.exists(generator_folder):
+            shutil.rmtree(generator_folder)
+
+        if os.path.exists(discriminator_folder):
+            shutil.rmtree(discriminator_folder)
+
+        os.makedirs(image_folder)
+        os.makedirs(generator_folder)
+        os.makedirs(discriminator_folder)
 
         model.train(args.epochs, train_loader, valid_loader, verbose=False)
 
