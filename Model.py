@@ -31,13 +31,8 @@ def _save(n: int, latent_dim: int, generator: Any, discriminator: Any) -> None:
     size = 64
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    os.makedirs('weights/generator', exist_ok=True)
-    os.makedirs('weights/discriminator', exist_ok=True)
-
     torch.save(generator, f'weights/generator/generator_{n}.pth')
     torch.save(discriminator, f'weights/discriminator/discriminator_{n}.pth')
-
-    os.makedirs('images', exist_ok=True)
 
     latent = _gen_latent(size, latent_dim).to(device)
     label = _gen_label(size).to(device)
@@ -202,7 +197,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
         print(f'\r{" " * last_length}', end='')
         print(f'\rEpochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{"=" * 20}], ', end='')
-        print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}', end='' if valid_loader else '\n')
+        print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}', end=', ' if valid_loader else '\n')
 
         if valid_loader:
             test(latent_dim, generator, valid_loader, evaluator, is_test=False)
@@ -222,7 +217,7 @@ def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Ev
 
             batch_size = label.shape[0]
 
-            latent = _gen_latent(batch_size, latent_dim)
+            latent = _gen_latent(batch_size, latent_dim).to(device)
 
             gen_image = generator(latent, label)
 

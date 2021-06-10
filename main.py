@@ -1,3 +1,4 @@
+import os
 import random
 import numpy as np
 import torch
@@ -51,6 +52,10 @@ if __name__ == '__main__':
     evaluator = Evaluator('./weights/classifier_weight.pth')
 
     if args.trainable:
+        os.makedirs('images', exist_ok=True)
+        os.makedirs('weights/generator', exist_ok=True)
+        os.makedirs('weights/discriminator', exist_ok=True)
+
         train(
             epochs=args.epochs,
             latent_dim=args.latent,
@@ -69,4 +74,8 @@ if __name__ == '__main__':
     if args.load:
         generator = torch.load(args.load)
 
+    print('test.json')
+    test(args.latent, generator, valid_loader, evaluator)
+
+    print('new_test.json')
     test(args.latent, generator, test_loader, evaluator)
