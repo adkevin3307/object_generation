@@ -9,6 +9,24 @@ from torchvision.utils import save_image
 from Evaluator import Evaluator
 
 
+def _gen_latent(size: int, latent_dim: int) -> torch.Tensor:
+    return torch.tensor(np.random.normal(0, 1, (size, latent_dim)), dtype=torch.float)
+
+
+def _gen_label(size: int, max_object_amount: int = 4, class_amount: int = 24) -> torch.Tensor:
+    gen_label = []
+
+    for _ in range(size):
+        object_amount = np.random.randint(1, max_object_amount, 1)
+
+        temp_gen_label = np.random.choice(range(class_amount), object_amount, replace=False)
+        temp_gen_label = one_hot(torch.tensor(temp_gen_label), class_amount)
+
+        gen_label.append(torch.sum(temp_gen_label, dim=0).view(1, -1))
+
+    return torch.cat(gen_label, dim=0).type(torch.float)
+
+
 def _save(n: int, latent_dim: int, generator: Any, discriminator: Any) -> None:
     size = 64
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -21,17 +39,10 @@ def _save(n: int, latent_dim: int, generator: Any, discriminator: Any) -> None:
 
     os.makedirs('images', exist_ok=True)
 
-    latent = torch.tensor(np.random.normal(0, 1, (size, latent_dim)), dtype=torch.float).to(device)
+    latent = _gen_latent(size, latent_dim).to(device)
+    label = _gen_label(size).to(device)
 
-    gen_label = []
-    for _ in range(size):
-        object_amount = np.random.randint(1, 4, 1)
-        temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
-        temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
-        gen_label.append(temp_gen_label.sum(0).view(1, -1))
-    gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
-
-    gen_image = generator(latent, gen_label)
+    gen_image = generator(latent, label)
 
     save_image(gen_image.data, f'images/{n}.png', nrow=int(size ** 0.5), normalize=True)
 
@@ -53,8 +64,8 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
         generator.train()
         discriminator.train()
 
-        length = len(str(epochs))
         last_length = 0
+        epoch_length = len(str(epochs))
 
         g_loss = 0.0
         d_loss = 0.0
@@ -73,15 +84,8 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
             fake = torch.tensor(np.zeros((batch_size, 1)), dtype=torch.float).to(device)
             fake.requires_grad = False
 
-            latent = torch.tensor(np.random.normal(0, 1, (batch_size, latent_dim)), dtype=torch.float).to(device)
-
-            gen_label = []
-            for _ in range(batch_size):
-                object_amount = np.random.randint(1, 4, 1)
-                temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
-                temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
-                gen_label.append(temp_gen_label.sum(0).view(1, -1))
-            gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
+            latent = _gen_latent(batch_size, latent_dim).to(device)
+            gen_label = _gen_label(batch_size).to(device)
 
             generator_optimizer.zero_grad()
 
@@ -177,7 +181,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             print(f'\r{" " * last_length}', end='')
 
-            message = f'Epochs: {(epoch + 1):>{length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%'
+            message = f'Epochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%'
 
             if verbose:
                 message += ', '
@@ -197,7 +201,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
         d_accuracy /= len(train_loader)
 
         print(f'\r{" " * last_length}', end='')
-        print(f'\rEpochs: {(epoch + 1):>{length}} / {epochs}, [{"=" * 20}], ', end='')
+        print(f'\rEpochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{"=" * 20}], ', end='')
         print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}')
 
 
@@ -212,7 +216,7 @@ def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Ev
 
         batch_size = label.shape[0]
 
-        latent = torch.tensor(np.random.normal(0, 1, (batch_size, latent_dim)), dtype=torch.float).to(device)
+        latent = _gen_latent(batch_size, latent_dim)
 
         gen_image = generator(latent, label)
 
