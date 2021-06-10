@@ -47,7 +47,7 @@ def _save(n: int, latent_dim: int, generator: Any, discriminator: Any) -> None:
     save_image(gen_image.data, f'images/{n}.png', nrow=int(size ** 0.5), normalize=True)
 
 
-def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator, verbose: bool = True) -> None:
+def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator, valid_loader: DataLoader = None, verbose: bool = True) -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     generator, discriminator = model[0], model[1]
@@ -202,36 +202,46 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
         print(f'\r{" " * last_length}', end='')
         print(f'\rEpochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{"=" * 20}], ', end='')
-        print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}')
+        print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}', end='' if valid_loader else '\n')
+
+        if valid_loader:
+            test(latent_dim, generator, valid_loader, evaluator, is_test=False)
 
 
-def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Evaluator) -> None:
+def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Evaluator, is_test: bool = True) -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    generator.eval()
 
     accuracy = 0.0
     last_length = 0
 
-    for i, (_, label) in enumerate(test_loader):
-        label = label.to(device)
+    with torch.no_grad():
+        for i, (_, label) in enumerate(test_loader):
+            label = label.to(device)
 
-        batch_size = label.shape[0]
+            batch_size = label.shape[0]
 
-        latent = _gen_latent(batch_size, latent_dim)
+            latent = _gen_latent(batch_size, latent_dim)
 
-        gen_image = generator(latent, label)
+            gen_image = generator(latent, label)
 
-        temp_accuracy = evaluator.eval(gen_image, label)
-        accuracy += temp_accuracy
+            temp_accuracy = evaluator.eval(gen_image, label)
+            accuracy += temp_accuracy
 
-        current_progress = (i + 1) / len(test_loader) * 100
-        progress_bar = '=' * int((i + 1) * (20 / len(test_loader)))
+            if is_test:
+                current_progress = (i + 1) / len(test_loader) * 100
+                progress_bar = '=' * int((i + 1) * (20 / len(test_loader)))
 
+                print(f'\r{" " * last_length}', end='')
+
+                message = f'Test: [{progress_bar:<20}] {current_progress:>6.2f}%, accuracy: {temp_accuracy:.3f}'
+                last_length = len(message) + 1
+
+                print(f'\r{message}', end='')
+
+    if is_test:
         print(f'\r{" " * last_length}', end='')
+        print(f'\rTest: [{"=" * 20}], ', end='')
 
-        message = f'Test: [{progress_bar:<20}] {current_progress:>6.2f}%, accuracy: {temp_accuracy:.3f}'
-        last_length = len(message) + 1
-
-        print(f'\r{message}', end='')
-
-    print(f'\r{" " * last_length}', end='')
-    print(f'\rTest: [{"=" * 20}], accuracy: {accuracy:.3f}')
+    print(f'accuracy: {accuracy:.3f}')

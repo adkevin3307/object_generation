@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
     args = parse()
 
-    train_loader, test_loader = load_data(args.root_folder)
+    train_loader, valid_loader, test_loader = load_data(args.root_folder)
 
     if args.net == 'ACGAN':
         generator = ACGAN_Generator(args.latent, image_size=64)
@@ -59,6 +59,7 @@ if __name__ == '__main__':
             criterion=(adversarial_criterion, auxiliary_criterion),
             train_loader=train_loader,
             evaluator=evaluator,
+            valid_loader=valid_loader,
             verbose=False
         )
 
