@@ -58,7 +58,8 @@ if __name__ == '__main__':
             optimizer=(generator_optimizer, discriminator_optimizer),
             criterion=(adversarial_criterion, auxiliary_criterion),
             train_loader=train_loader,
-            evaluator=evaluator
+            evaluator=evaluator,
+            verbose=False
         )
 
         torch.save(generator, 'weights/generator/generator_final.pth')

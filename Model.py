@@ -9,7 +9,34 @@ from torchvision.utils import save_image
 from Evaluator import Evaluator
 
 
-def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator) -> None:
+def _save(n: int, latent_dim: int, generator: Any, discriminator: Any) -> None:
+    size = 64
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    os.makedirs('weights/generator', exist_ok=True)
+    os.makedirs('weights/discriminator', exist_ok=True)
+
+    torch.save(generator, f'weights/generator/generator_{n}.pth')
+    torch.save(discriminator, f'weights/discriminator/discriminator_{n}.pth')
+
+    os.makedirs('images', exist_ok=True)
+
+    latent = torch.tensor(np.random.normal(0, 1, (size, latent_dim)), dtype=torch.float).to(device)
+
+    gen_label = []
+    for _ in range(size):
+        object_amount = np.random.randint(1, 4, 1)
+        temp_gen_label = np.random.choice(range(24), object_amount, replace=False)
+        temp_gen_label = one_hot(torch.tensor(temp_gen_label), 24)
+        gen_label.append(temp_gen_label.sum(0).view(1, -1))
+    gen_label = torch.cat(gen_label, dim=0).type(torch.float).to(device)
+
+    gen_image = generator(latent, gen_label)
+
+    save_image(gen_image.data, f'images/{n}.png', nrow=int(size ** 0.5), normalize=True)
+
+
+def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator, verbose: bool = True) -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     generator, discriminator = model[0], model[1]
@@ -112,14 +139,9 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
                 real_validity = discriminator(real_image, label)
 
-                if torch.rand(1) > 0.5:
-                    fake_image = real_image
-                    fake_label = gen_label
-                else:
-                    fake_image = generator(latent, label)
-                    fake_label = label
+                fake_image = generator(latent, label)
 
-                fake_validity = discriminator(fake_image, fake_label)
+                fake_validity = discriminator(fake_image, label)
 
                 real_grad_out = torch.ones(real_validity.shape).to(device)
                 real_grad_out.requires_grad = False
@@ -143,6 +165,7 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
                 truth = torch.cat([torch.ones(real_validity.shape), torch.zeros(fake_validity.shape)], dim=0).to(device)
 
                 temp_d_accuracy = torch.sum(pred == truth).item() / truth.shape[0]
+
             else:
                 raise NotImplementedError('discriminator loss and accuracy not implemented')
 
@@ -154,24 +177,19 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
 
             print(f'\r{" " * last_length}', end='')
 
-            message = f'Epochs: {(epoch + 1):>{length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%, '
-            message += f'g_loss: {temp_g_loss.item():.3f}, d_loss: {temp_d_loss.item():.3f}, '
-            message += f'g_accuracy: {temp_g_accuracy:.3f}, d_accuracy: {temp_d_accuracy:.3f}'
+            message = f'Epochs: {(epoch + 1):>{length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%'
+
+            if verbose:
+                message += ', '
+                message += f'g_loss: {temp_g_loss.item():.3f}, d_loss: {temp_d_loss.item():.3f}, '
+                message += f'g_accuracy: {temp_g_accuracy:.3f}, d_accuracy: {temp_d_accuracy:.3f}'
+
             last_length = len(message) + 1
 
             print(f'\r{message}', end='')
 
-            batch_amount = epoch * len(train_loader) + i
-            if batch_amount % 500 == 0:
-                os.makedirs('weights/generator', exist_ok=True)
-                os.makedirs('weights/discriminator', exist_ok=True)
-
-                torch.save(generator, f'weights/generator/generator_{batch_amount}.pth')
-                torch.save(discriminator, f'weights/discriminator/discriminator_{batch_amount}.pth')
-
-                os.makedirs('images', exist_ok=True)
-
-                save_image(gen_image.data, f'images/{batch_amount}.png', nrow=8, normalize=True)
+        if (epoch + 1) % 5 == 0:
+            _save(epoch + 1, latent_dim, generator, discriminator)
 
         g_loss /= len(train_loader)
         d_loss /= len(train_loader)
