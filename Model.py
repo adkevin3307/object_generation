@@ -1,154 +1,363 @@
-import os
 import numpy as np
-from typing import Any
+from typing import Callable
 import torch
+import torch.optim as optim
 from torch.nn.functional import one_hot
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 
 from Evaluator import Evaluator
+from Net import ACGAN_Generator, ACGAN_Discriminator, WGAN_Generator, WGAN_Discriminator
 
 
-def _gen_latent(size: int, latent_dim: int) -> torch.Tensor:
-    return torch.tensor(np.random.normal(0, 1, (size, latent_dim)), dtype=torch.float)
+class BaseModel:
+    def __init__(self) -> None:
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    def train(self) -> None:
+        raise NotImplementedError('train not implemented')
+
+    def test(self) -> None:
+        raise NotImplementedError('test not implemented')
+
+    def load(self) -> None:
+        raise NotImplementedError('load not implemented')
+
+    def save(self) -> None:
+        raise NotImplementedError('save not implemented')
 
 
-def _gen_label(size: int, max_object_amount: int = 4, class_amount: int = 24) -> torch.Tensor:
-    gen_label = []
+class ACGAN(BaseModel):
+    def __init__(
+        self,
+        generator: ACGAN_Generator,
+        discriminator: ACGAN_Discriminator,
+        generator_optimizer: optim.Optimizer,
+        discriminator_optimizer: optim.Optimizer,
+        adversarial_criterion: Callable,
+        auxiliary_criterion: Callable,
+        evaluator: Evaluator,
+        latent_dim: int,
+        num_classes: int
+    ) -> None:
+        super(ACGAN, self).__init__()
 
-    for _ in range(size):
-        object_amount = np.random.randint(1, max_object_amount, 1)
+        self.generator = generator
+        self.discriminator = discriminator
+        self.generator_optimizer = generator_optimizer
+        self.discriminator_optimizer = discriminator_optimizer
+        self.adversarial_criterion = adversarial_criterion
+        self.auxiliary_criterion = auxiliary_criterion
+        self.evaluator = evaluator
+        self.latent_dim = latent_dim
+        self.num_classes = num_classes
 
-        temp_gen_label = np.random.choice(range(class_amount), object_amount, replace=False)
-        temp_gen_label = one_hot(torch.tensor(temp_gen_label), class_amount)
+        self.generator.apply(self._init_weight)
+        self.discriminator.apply(self._init_weight)
 
-        gen_label.append(torch.sum(temp_gen_label, dim=0).view(1, -1))
+        self.generator = self.generator.to(self.device)
+        self.discriminator = self.discriminator.to(self.device)
 
-    return torch.cat(gen_label, dim=0).type(torch.float)
+    def _init_weight(self, m) -> None:
+        name = m.__class__.__name__
 
+        if 'Conv' in name:
+            torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+        elif 'BatchNorm2d' in name:
+            torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+            torch.nn.init.constant_(m.bias.data, 0.0)
 
-def _save(n: int, latent_dim: int, generator: Any, discriminator: Any) -> None:
-    size = 64
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    def _gen_latent(self, size: int) -> torch.Tensor:
+        return torch.tensor(np.random.normal(0, 1, (size, self.latent_dim)), dtype=torch.float)
 
-    torch.save(generator, f'weights/generator/generator_{n}.pth')
-    torch.save(discriminator, f'weights/discriminator/discriminator_{n}.pth')
+    def _gen_label(self, size: int, max_object_amount: int = 4) -> torch.Tensor:
+        gen_label = []
 
-    latent = _gen_latent(size, latent_dim).to(device)
-    label = _gen_label(size).to(device)
+        for _ in range(size):
+            object_amount = np.random.randint(1, max_object_amount, 1)
 
-    gen_image = generator(latent, label)
+            temp_gen_label = np.random.choice(range(self.num_classes), object_amount, replace=False)
+            temp_gen_label = one_hot(torch.tensor(temp_gen_label), self.num_classes)
 
-    save_image(gen_image.data, f'images/{n}.png', nrow=int(size ** 0.5), normalize=True)
+            gen_label.append(torch.sum(temp_gen_label, dim=0).view(1, -1))
 
+        return torch.cat(gen_label, dim=0).type(torch.float)
 
-def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterion: tuple, train_loader: DataLoader, evaluator: Evaluator, valid_loader: DataLoader = None, verbose: bool = True) -> None:
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    def _save_image(self, image_name: str) -> None:
+        size = 64
 
-    generator, discriminator = model[0], model[1]
-    generator_optimizer, discriminator_optimizer = optimizer[0], optimizer[1]
-    adversarial_criterion, auxiliary_criterion = criterion[0], criterion[1]
+        latent = self._gen_latent(size).to(self.device)
+        label = self._gen_label(size).to(self.device)
 
-    generator = generator.to(device)
-    discriminator = discriminator.to(device)
+        gen_image = self.generator(latent, label)
 
-    generator_name = generator._get_name()
-    discriminator_name = discriminator._get_name()
+        save_image(gen_image.data, image_name, nrow=int(size ** 0.5), normalize=True)
 
-    for epoch in range(epochs):
-        generator.train()
-        discriminator.train()
+    def train(self, epochs: int, train_loader: DataLoader, valid_loader: DataLoader = None, verbose: bool = True) -> None:
+        for epoch in range(epochs):
+            self.generator.train()
+            self.discriminator.train()
 
-        last_length = 0
-        epoch_length = len(str(epochs))
+            last_length = 0
+            epoch_length = len(str(epochs))
 
-        g_loss = 0.0
-        d_loss = 0.0
-        g_accuracy = 0.0
-        d_accuracy = 0.0
+            g_loss = 0.0
+            d_loss = 0.0
+            g_accuracy = 0.0
+            d_accuracy = 0.0
 
-        for i, (image, label) in enumerate(train_loader):
-            image = image.to(device)
-            label = label.to(device)
+            for i, (image, label) in enumerate(train_loader):
+                image = image.to(self.device)
+                label = label.to(self.device)
 
-            batch_size = image.shape[0]
+                batch_size = image.shape[0]
 
-            valid = torch.tensor(np.ones((batch_size, 1)), dtype=torch.float).to(device)
-            valid.requires_grad = False
+                valid = torch.tensor(np.ones((batch_size, 1)), dtype=torch.float).to(self.device)
+                valid.requires_grad = False
 
-            fake = torch.tensor(np.zeros((batch_size, 1)), dtype=torch.float).to(device)
-            fake.requires_grad = False
+                fake = torch.tensor(np.zeros((batch_size, 1)), dtype=torch.float).to(self.device)
+                fake.requires_grad = False
 
-            latent = _gen_latent(batch_size, latent_dim).to(device)
-            gen_label = _gen_label(batch_size).to(device)
+                latent = self._gen_latent(batch_size).to(self.device)
+                gen_label = self._gen_label(batch_size).to(self.device)
 
-            generator_optimizer.zero_grad()
+                self.generator_optimizer.zero_grad()
 
-            gen_image = generator(latent, label)
+                gen_image = self.generator(latent, label)
 
-            if generator_name == 'ACGAN_Generator':
-                validity, pred_label = discriminator(gen_image)
+                validity, pred_label = self.discriminator(gen_image)
 
-                temp_g_loss = 0.5 * (adversarial_criterion(validity, valid) + auxiliary_criterion(pred_label, gen_label))
+                temp_g_loss = 0.5 * (self.adversarial_criterion(validity, valid) + self.auxiliary_criterion(pred_label, gen_label))
                 g_loss += temp_g_loss.item()
 
                 temp_g_loss.backward()
-                generator_optimizer.step()
+                self.generator_optimizer.step()
 
-            elif generator_name == 'WGAN_Generator':
-                temp_g_loss = torch.zeros(1)
+                temp_g_accuracy = self.evaluator.eval(gen_image, label)
+                g_accuracy += temp_g_accuracy
 
-                if (i + 1) % 5 == 0:
-                    validity = discriminator(gen_image, label)
+                self.discriminator_optimizer.zero_grad()
 
-                    temp_g_loss = -1.0 * torch.mean(validity)
-                    g_loss += temp_g_loss.item()
+                real_validity, real_label = self.discriminator(image)
+                real_loss = (self.adversarial_criterion(real_validity, valid) + self.auxiliary_criterion(real_label, label)) / 2
 
-                    temp_g_loss.backward()
-                    generator_optimizer.step()
-            else:
-                raise NotImplementedError('generator loss and accuracy not implemented')
-
-            temp_g_accuracy = evaluator.eval(gen_image, label)
-            g_accuracy += temp_g_accuracy
-
-            discriminator_optimizer.zero_grad()
-
-            if discriminator_name == 'ACGAN_Discriminator':
-                real_validity, real_label = discriminator(image)
-                real_loss = (adversarial_criterion(real_validity, valid) + auxiliary_criterion(real_label, label)) / 2
-
-                fake_validity, fake_label = discriminator(gen_image.detach())
-                fake_loss = (adversarial_criterion(fake_validity, fake) + auxiliary_criterion(fake_label, gen_label)) / 2
+                fake_validity, fake_label = self.discriminator(gen_image.detach())
+                fake_loss = (self.adversarial_criterion(fake_validity, fake) + self.auxiliary_criterion(fake_label, gen_label)) / 2
 
                 temp_d_loss = (real_loss + fake_loss) / 2
                 d_loss += temp_d_loss.item()
 
                 temp_d_loss.backward()
-                discriminator_optimizer.step()
+                self.discriminator_optimizer.step()
 
                 pred = (torch.cat([real_label, fake_label], dim=0) > 0.5).type(torch.long)
                 truth = torch.cat([label, gen_label], dim=0)
 
                 temp_d_accuracy = (torch.sum(torch.logical_and((pred == truth), (truth == 1))) / torch.sum(truth == 1)).item()
+                d_accuracy += temp_d_accuracy
 
-            elif discriminator_name == 'WGAN_Discriminator':
-                real_image = torch.clone(image).to(device)
+                # progress bar
+                current_progress = (i + 1) / len(train_loader) * 100
+                progress_bar = '=' * int((i + 1) * (20 / len(train_loader)))
+
+                print(f'\r{" " * last_length}', end='')
+
+                message = f'Epochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%'
+
+                if verbose:
+                    message += ', '
+                    message += f'g_loss: {temp_g_loss.item():.3f}, d_loss: {temp_d_loss.item():.3f}, '
+                    message += f'g_accuracy: {temp_g_accuracy:.3f}, d_accuracy: {temp_d_accuracy:.3f}'
+
+                last_length = len(message) + 1
+
+                print(f'\r{message}', end='')
+
+            if (epoch + 1) % 5 == 0:
+                self.save(f'weights/generator/{epoch + 1}.pth', f'weights/discriminator/{epoch + 1}.pth')
+                self._save_image(f'images/{epoch + 1}.png')
+
+            g_loss /= len(train_loader)
+            d_loss /= len(train_loader)
+            g_accuracy /= len(train_loader)
+            d_accuracy /= len(train_loader)
+
+            print(f'\r{" " * last_length}', end='')
+            print(f'\rEpochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{"=" * 20}], ', end='')
+            print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}', end=', ' if valid_loader else '\n')
+
+            if valid_loader:
+                self.test(valid_loader, is_test=False)
+
+    def test(self, test_loader: DataLoader, is_test: bool = True) -> None:
+        self.generator.eval()
+
+        accuracy = 0.0
+        last_length = 0
+
+        with torch.no_grad():
+            for i, (_, label) in enumerate(test_loader):
+                label = label.to(self.device)
+
+                batch_size = label.shape[0]
+
+                latent = self._gen_latent(batch_size).to(self.device)
+
+                gen_image = self.generator(latent, label)
+
+                temp_accuracy = self.evaluator.eval(gen_image, label)
+                accuracy += temp_accuracy
+
+                if is_test:
+                    current_progress = (i + 1) / len(test_loader) * 100
+                    progress_bar = '=' * int((i + 1) * (20 / len(test_loader)))
+
+                    print(f'\r{" " * last_length}', end='')
+
+                    message = f'Test: [{progress_bar:<20}] {current_progress:>6.2f}%, accuracy: {temp_accuracy:.3f}'
+                    last_length = len(message) + 1
+
+                    print(f'\r{message}', end='')
+
+        accuracy /= len(test_loader)
+
+        if is_test:
+            print(f'\r{" " * last_length}', end='')
+            print(f'\rTest: [{"=" * 20}], ', end='')
+
+        print(f'accuracy: {accuracy:.3f}')
+
+    def save(self, generator_name: str, discriminator_name: str) -> None:
+        torch.save(self.generator, generator_name)
+        torch.save(self.discriminator, discriminator_name)
+
+    def load(self, generator_name: str, discriminator_name: str) -> None:
+        if generator_name:
+            self.generator = torch.load(generator_name)
+
+        if discriminator_name:
+            self.discriminator = torch.load(discriminator_name)
+
+
+class WGAN(BaseModel):
+    def __init__(
+        self,
+        generator: WGAN_Generator,
+        discriminator: WGAN_Discriminator,
+        generator_optimizer: optim.Optimizer,
+        discriminator_optimizer: optim.Optimizer,
+        evaluator: Evaluator,
+        latent_dim: int,
+        num_classes: int
+    ) -> None:
+        super(WGAN, self).__init__()
+
+        self.generator = generator
+        self.discriminator = discriminator
+        self.generator_optimizer = generator_optimizer
+        self.discriminator_optimizer = discriminator_optimizer
+        self.evaluator = evaluator
+        self.latent_dim = latent_dim
+        self.num_classes = num_classes
+
+        self.generator.apply(self._init_weight)
+        self.discriminator.apply(self._init_weight)
+
+        self.generator = self.generator.to(self.device)
+        self.discriminator = self.discriminator.to(self.device)
+
+    def _init_weight(self, m) -> None:
+        name = m.__class__.__name__
+
+        if 'Conv' in name:
+            torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+        elif 'BatchNorm2d' in name:
+            torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+            torch.nn.init.constant_(m.bias.data, 0.0)
+
+    def _gen_latent(self, size: int) -> torch.Tensor:
+        return torch.tensor(np.random.normal(0, 1, (size, self.latent_dim)), dtype=torch.float)
+
+    def _gen_label(self, size: int, max_object_amount: int = 4) -> torch.Tensor:
+        gen_label = []
+
+        for _ in range(size):
+            object_amount = np.random.randint(1, max_object_amount, 1)
+
+            temp_gen_label = np.random.choice(range(self.num_classes), object_amount, replace=False)
+            temp_gen_label = one_hot(torch.tensor(temp_gen_label), self.num_classes)
+
+            gen_label.append(torch.sum(temp_gen_label, dim=0).view(1, -1))
+
+        return torch.cat(gen_label, dim=0).type(torch.float)
+
+    def _save_image(self, image_name: str) -> None:
+        size = 64
+
+        latent = self._gen_latent(size).to(self.device)
+        label = self._gen_label(size).to(self.device)
+
+        gen_image = self.generator(latent, label)
+
+        save_image(gen_image.data, image_name, nrow=int(size ** 0.5), normalize=True)
+
+    def train(self, epochs: int, train_loader: DataLoader, valid_loader: DataLoader = None, verbose: bool = True) -> None:
+        for epoch in range(epochs):
+            self.generator.train()
+            self.discriminator.train()
+
+            last_length = 0
+            epoch_length = len(str(epochs))
+
+            g_loss = 0.0
+            d_loss = 0.0
+            g_accuracy = 0.0
+            d_accuracy = 0.0
+
+            for i, (image, label) in enumerate(train_loader):
+                image = image.to(self.device)
+                label = label.to(self.device)
+
+                batch_size = image.shape[0]
+
+                latent = self._gen_latent(batch_size).to(self.device)
+
+                self.generator_optimizer.zero_grad()
+
+                gen_image = self.generator(latent, label)
+
+                temp_g_loss = torch.zeros(1)
+
+                if (i + 1) % 5 == 0:
+                    validity = self.discriminator(gen_image, label)
+
+                    temp_g_loss = -1.0 * torch.mean(validity)
+                    g_loss += temp_g_loss.item()
+
+                    temp_g_loss.backward()
+                    self.generator_optimizer.step()
+
+                temp_g_accuracy = self.evaluator.eval(gen_image, label)
+                g_accuracy += temp_g_accuracy
+
+                self.discriminator_optimizer.zero_grad()
+
+                real_image = torch.clone(image).to(self.device)
                 real_image.requires_grad = True
 
-                real_validity = discriminator(real_image, label)
+                real_validity = self.discriminator(real_image, label)
 
-                fake_image = generator(latent, label)
+                fake_image = self.generator(latent, label)
 
-                fake_validity = discriminator(fake_image, label)
+                fake_validity = self.discriminator(fake_image, label)
 
-                real_grad_out = torch.ones(real_validity.shape).to(device)
+                real_grad_out = torch.ones(real_validity.shape).to(self.device)
                 real_grad_out.requires_grad = False
 
                 real_grad = torch.autograd.grad(real_validity, real_image, real_grad_out, retain_graph=True, create_graph=True, only_inputs=True)[0]
                 real_grad_norm = torch.sum(real_grad.view(real_grad.shape[0], -1) ** 2, dim=1) ** 3
 
-                fake_grad_out = torch.ones(fake_validity.shape).to(device)
+                fake_grad_out = torch.ones(fake_validity.shape).to(self.device)
                 fake_grad_out.requires_grad = False
 
                 fake_grad = torch.autograd.grad(fake_validity, fake_image, fake_grad_out, retain_graph=True, create_graph=True, only_inputs=True)[0]
@@ -158,87 +367,92 @@ def train(epochs: int, latent_dim: int, model: tuple, optimizer: tuple, criterio
                 d_loss += temp_d_loss.item()
 
                 temp_d_loss.backward()
-                discriminator_optimizer.step()
+                self.discriminator_optimizer.step()
 
                 pred = (torch.cat([real_validity, fake_validity], dim=0) > 0.5).type(torch.long)
-                truth = torch.cat([torch.ones(real_validity.shape), torch.zeros(fake_validity.shape)], dim=0).to(device)
+                truth = torch.cat([torch.ones(real_validity.shape), torch.zeros(fake_validity.shape)], dim=0).to(self.device)
 
                 temp_d_accuracy = torch.sum(pred == truth).item() / truth.shape[0]
+                d_accuracy += temp_d_accuracy
 
-            else:
-                raise NotImplementedError('discriminator loss and accuracy not implemented')
-
-            d_accuracy += temp_d_accuracy
-
-            # progress bar
-            current_progress = (i + 1) / len(train_loader) * 100
-            progress_bar = '=' * int((i + 1) * (20 / len(train_loader)))
-
-            print(f'\r{" " * last_length}', end='')
-
-            message = f'Epochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%'
-
-            if verbose:
-                message += ', '
-                message += f'g_loss: {temp_g_loss.item():.3f}, d_loss: {temp_d_loss.item():.3f}, '
-                message += f'g_accuracy: {temp_g_accuracy:.3f}, d_accuracy: {temp_d_accuracy:.3f}'
-
-            last_length = len(message) + 1
-
-            print(f'\r{message}', end='')
-
-        if (epoch + 1) % 5 == 0:
-            _save(epoch + 1, latent_dim, generator, discriminator)
-
-        g_loss /= len(train_loader)
-        d_loss /= len(train_loader)
-        g_accuracy /= len(train_loader)
-        d_accuracy /= len(train_loader)
-
-        print(f'\r{" " * last_length}', end='')
-        print(f'\rEpochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{"=" * 20}], ', end='')
-        print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}', end=', ' if valid_loader else '\n')
-
-        if valid_loader:
-            test(latent_dim, generator, valid_loader, evaluator, is_test=False)
-
-
-def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Evaluator, is_test: bool = True) -> None:
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    generator.eval()
-
-    accuracy = 0.0
-    last_length = 0
-
-    with torch.no_grad():
-        for i, (_, label) in enumerate(test_loader):
-            label = label.to(device)
-
-            batch_size = label.shape[0]
-
-            latent = _gen_latent(batch_size, latent_dim).to(device)
-
-            gen_image = generator(latent, label)
-
-            temp_accuracy = evaluator.eval(gen_image, label)
-            accuracy += temp_accuracy
-
-            if is_test:
-                current_progress = (i + 1) / len(test_loader) * 100
-                progress_bar = '=' * int((i + 1) * (20 / len(test_loader)))
+                # progress bar
+                current_progress = (i + 1) / len(train_loader) * 100
+                progress_bar = '=' * int((i + 1) * (20 / len(train_loader)))
 
                 print(f'\r{" " * last_length}', end='')
 
-                message = f'Test: [{progress_bar:<20}] {current_progress:>6.2f}%, accuracy: {temp_accuracy:.3f}'
+                message = f'Epochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{progress_bar:<20}] {current_progress:>6.2f}%'
+
+                if verbose:
+                    message += ', '
+                    message += f'g_loss: {temp_g_loss.item():.3f}, d_loss: {temp_d_loss.item():.3f}, '
+                    message += f'g_accuracy: {temp_g_accuracy:.3f}, d_accuracy: {temp_d_accuracy:.3f}'
+
                 last_length = len(message) + 1
 
                 print(f'\r{message}', end='')
 
-    accuracy /= len(test_loader)
+            if (epoch + 1) % 5 == 0:
+                self.save(f'weights/generator/{epoch + 1}.pth', f'weights/discriminator/{epoch + 1}.pth')
+                self._save_image(f'images/{epoch + 1}.png')
 
-    if is_test:
-        print(f'\r{" " * last_length}', end='')
-        print(f'\rTest: [{"=" * 20}], ', end='')
+            g_loss /= len(train_loader)
+            d_loss /= len(train_loader)
+            g_accuracy /= len(train_loader)
+            d_accuracy /= len(train_loader)
 
-    print(f'accuracy: {accuracy:.3f}')
+            print(f'\r{" " * last_length}', end='')
+            print(f'\rEpochs: {(epoch + 1):>{epoch_length}} / {epochs}, [{"=" * 20}], ', end='')
+            print(f'g_loss: {g_loss:.3f}, d_loss: {d_loss:.3f}, g_accuracy: {g_accuracy:.3f}, d_accuracy: {d_accuracy:.3f}', end=', ' if valid_loader else '\n')
+
+            if valid_loader:
+                self.test(valid_loader, is_test=False)
+
+    def test(self, test_loader: DataLoader, is_test: bool = True) -> None:
+        self.generator.eval()
+
+        accuracy = 0.0
+        last_length = 0
+
+        with torch.no_grad():
+            for i, (_, label) in enumerate(test_loader):
+                label = label.to(self.device)
+
+                batch_size = label.shape[0]
+
+                latent = self._gen_latent(batch_size).to(self.device)
+
+                gen_image = self.generator(latent, label)
+
+                temp_accuracy = self.evaluator.eval(gen_image, label)
+                accuracy += temp_accuracy
+
+                if is_test:
+                    current_progress = (i + 1) / len(test_loader) * 100
+                    progress_bar = '=' * int((i + 1) * (20 / len(test_loader)))
+
+                    print(f'\r{" " * last_length}', end='')
+
+                    message = f'Test: [{progress_bar:<20}] {current_progress:>6.2f}%, accuracy: {temp_accuracy:.3f}'
+                    last_length = len(message) + 1
+
+                    print(f'\r{message}', end='')
+
+        accuracy /= len(test_loader)
+
+        if is_test:
+            print(f'\r{" " * last_length}', end='')
+            print(f'\rTest: [{"=" * 20}], ', end='')
+
+        print(f'accuracy: {accuracy:.3f}')
+
+    def save(self, generator_name: str, discriminator_name: str) -> None:
+        torch.save(self.generator, generator_name)
+        torch.save(self.discriminator, discriminator_name)
+
+    def load(self, generator_name: str, discriminator_name: str) -> None:
+        if generator_name:
+            self.generator = torch.load(generator_name)
+
+        if discriminator_name:
+            self.discriminator = torch.load(discriminator_name)

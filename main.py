@@ -8,17 +8,7 @@ import torch.optim as optim
 from utils import parse, load_data
 from Net import ACGAN_Generator, ACGAN_Discriminator, WGAN_Generator, WGAN_Discriminator
 from Evaluator import Evaluator
-from Model import train, test
-
-
-def init_weights(m):
-    name = m.__class__.__name__
-
-    if 'Conv' in name:
-        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif 'BatchNorm2d' in name:
-        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
-        torch.nn.init.constant_(m.bias.data, 0.0)
+from Model import ACGAN, WGAN
 
 
 if __name__ == '__main__':
@@ -31,51 +21,61 @@ if __name__ == '__main__':
 
     train_loader, valid_loader, test_loader = load_data(args.root_folder)
 
+    evaluator = Evaluator('./weights/classifier_weight.pth')
+
     if args.net == 'ACGAN':
-        generator = ACGAN_Generator(args.latent, image_size=64)
+        generator = ACGAN_Generator(args.latent_dim, image_size=64)
         discriminator = ACGAN_Discriminator(image_size=64)
+
+        generator_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+        discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+
+        adversarial_criterion = nn.BCELoss()
+        auxiliary_criterion = nn.BCELoss()
+
+        model = ACGAN(
+            generator,
+            discriminator,
+            generator_optimizer,
+            discriminator_optimizer,
+            adversarial_criterion,
+            auxiliary_criterion,
+            evaluator,
+            args.latent_dim,
+            num_classes=24
+        )
     elif args.net == 'WGAN':
-        generator = WGAN_Generator(args.latent, image_size=64)
+        generator = WGAN_Generator(args.latent_dim, image_size=64)
         discriminator = WGAN_Discriminator(image_size=64)
+
+        generator_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+        discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+
+        model = WGAN(
+            generator,
+            discriminator,
+            generator_optimizer,
+            discriminator_optimizer,
+            evaluator,
+            args.latent_dim,
+            num_classes=24
+        )
     else:
         raise NotImplementedError('net architecture not implemented')
 
-    generator.apply(init_weights)
-    discriminator.apply(init_weights)
-
-    generator_optimizer = optim.Adam(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
-    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=2e-4, betas=(0.5, 0.999))
-
-    adversarial_criterion = nn.BCELoss()
-    auxiliary_criterion = nn.BCELoss()
-
-    evaluator = Evaluator('./weights/classifier_weight.pth')
+    model.load(args.load_generator, args.load_discriminator)
 
     if args.trainable:
         os.makedirs('images', exist_ok=True)
         os.makedirs('weights/generator', exist_ok=True)
         os.makedirs('weights/discriminator', exist_ok=True)
 
-        train(
-            epochs=args.epochs,
-            latent_dim=args.latent,
-            model=(generator, discriminator),
-            optimizer=(generator_optimizer, discriminator_optimizer),
-            criterion=(adversarial_criterion, auxiliary_criterion),
-            train_loader=train_loader,
-            evaluator=evaluator,
-            valid_loader=valid_loader,
-            verbose=False
-        )
+        model.train(args.epochs, train_loader, valid_loader, verbose=False)
 
-        torch.save(generator, 'weights/generator/generator_final.pth')
-        torch.save(discriminator, 'weights/discriminator/discriminator_final.pth')
-
-    if args.load:
-        generator = torch.load(args.load)
+        model.save('weights/generator/final.pth', 'weights/discriminator/final.pth')
 
     print('test.json')
-    test(args.latent, generator, valid_loader, evaluator)
+    model.test(valid_loader)
 
     print('new_test.json')
-    test(args.latent, generator, test_loader, evaluator)
+    model.test(test_loader)
