@@ -21,7 +21,7 @@ class ACGAN_Generator(nn.Module):
             nn.BatchNorm2d(64, 0.8),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(64, channels, 3, stride=1, padding=1),
-            nn.Tanh(),
+            nn.Tanh()
         )
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
@@ -87,31 +87,43 @@ class WGAN_Generator(nn.Module):
         super(WGAN_Generator, self).__init__()
 
         self.linear = nn.Sequential(
-            nn.Linear(latent_dim + 24, 256, bias=True),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, latent_dim, bias=True)
+            nn.Linear(latent_dim + 24, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(256, 128)
         )
 
         self.conv_blocks = nn.Sequential(
-            nn.ConvTranspose2d(latent_dim, image_size * 8, 4, stride=1, padding=0),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(image_size * 8, image_size * 4, 4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(image_size * 4, image_size * 2, 4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(image_size * 2, image_size, 4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(image_size, channels, 4, stride=2, padding=1),
+            nn.Upsample(scale_factor=4),
+            nn.Conv2d(128, image_size * 8, 3, stride=1, padding=1),
+            nn.BatchNorm2d(image_size * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(image_size * 8, image_size * 4, 3, stride=1, padding=1),
+            nn.BatchNorm2d(image_size * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(image_size * 4, image_size * 2, 3, stride=1, padding=1),
+            nn.BatchNorm2d(image_size * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(image_size * 2, image_size, 3, stride=1, padding=1),
+            nn.BatchNorm2d(image_size),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(image_size, channels, 3, stride=1, padding=1),
+            nn.BatchNorm2d(channels),
             nn.Tanh()
         )
 
     def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        origin_shape = x.shape
-
         x = torch.cat([x, condition], dim=-1)
 
         x = self.linear(x)
-        x = x.view(origin_shape[0], origin_shape[1], 1, 1)
+        x = x.view(*x.shape, 1, 1)
         x = self.conv_blocks(x)
 
         return x
@@ -122,20 +134,28 @@ class WGAN_Discriminator(nn.Module):
         super(WGAN_Discriminator, self).__init__()
 
         self.transform = nn.Sequential(
-            nn.Linear(image_size * image_size * channels + 24, 1024, bias=True),
+            nn.Linear(image_size * image_size * channels + 24, 1024),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(1024, image_size * image_size * channels, bias=True)
+            nn.Linear(1024, image_size * image_size * channels)
         )
 
         self.conv_blocks = nn.Sequential(
             nn.Conv2d(channels, image_size, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(image_size, image_size * 2, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size * 2),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(image_size * 2, image_size * 4, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size * 4),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(image_size * 4, image_size * 8, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size * 8),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(image_size * 8, 1, 4)
         )
 
@@ -145,6 +165,6 @@ class WGAN_Discriminator(nn.Module):
         x = torch.cat([x.view(x.shape[0], -1), condition], dim=-1)
 
         x = self.transform(x).view(origin_shape)
-        validity = self.conv_blocks(x)
+        x = self.conv_blocks(x)
 
-        return validity
+        return x
