@@ -93,29 +93,22 @@ class WGAN_Generator(nn.Module):
         )
 
         self.conv_blocks = nn.Sequential(
-            nn.Upsample(scale_factor=4),
-            nn.Conv2d(128, image_size * 8, 3, stride=1, padding=1),
-            nn.BatchNorm2d(image_size * 8),
+            nn.ConvTranspose2d(128, image_size * 8, 4, stride=1, padding=0),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(image_size * 8, image_size * 4, 3, stride=1, padding=1),
-            nn.BatchNorm2d(image_size * 4),
+            nn.ConvTranspose2d(image_size * 8, image_size * 4, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size * 4, 0.8),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(image_size * 4, image_size * 2, 3, stride=1, padding=1),
-            nn.BatchNorm2d(image_size * 2),
+            nn.ConvTranspose2d(image_size * 4, image_size * 2, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size * 2, 0.8),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(image_size * 2, image_size, 3, stride=1, padding=1),
-            nn.BatchNorm2d(image_size),
+            nn.ConvTranspose2d(image_size * 2, image_size, 4, stride=2, padding=1),
+            nn.BatchNorm2d(image_size, 0.8),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(image_size, channels, 3, stride=1, padding=1),
-            nn.BatchNorm2d(channels),
+            nn.ConvTranspose2d(image_size, channels, 4, stride=2, padding=1),
             nn.Tanh()
         )
 
@@ -141,19 +134,15 @@ class WGAN_Discriminator(nn.Module):
 
         self.conv_blocks = nn.Sequential(
             nn.Conv2d(channels, image_size, 4, stride=2, padding=1),
-            nn.BatchNorm2d(image_size),
             nn.LeakyReLU(0.2, inplace=True),
 
             nn.Conv2d(image_size, image_size * 2, 4, stride=2, padding=1),
-            nn.BatchNorm2d(image_size * 2),
             nn.LeakyReLU(0.2, inplace=True),
 
             nn.Conv2d(image_size * 2, image_size * 4, 4, stride=2, padding=1),
-            nn.BatchNorm2d(image_size * 4),
             nn.LeakyReLU(0.2, inplace=True),
 
             nn.Conv2d(image_size * 4, image_size * 8, 4, stride=2, padding=1),
-            nn.BatchNorm2d(image_size * 8),
             nn.LeakyReLU(0.2, inplace=True),
 
             nn.Conv2d(image_size * 8, 1, 4)
