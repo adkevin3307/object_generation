@@ -240,6 +240,8 @@ def test(latent_dim: int, generator: Any, test_loader: DataLoader, evaluator: Ev
 
                 print(f'\r{message}', end='')
 
+    accuracy /= len(test_loader)
+
     if is_test:
         print(f'\r{" " * last_length}', end='')
         print(f'\rTest: [{"=" * 20}], ', end='')
