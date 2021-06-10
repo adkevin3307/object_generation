@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.backends.cudnn as cudnn
 
 from utils import parse, load_data
 from Net import ACGAN_Generator, ACGAN_Discriminator, WGAN_Generator, WGAN_Discriminator
@@ -16,6 +17,8 @@ if __name__ == '__main__':
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
     torch.cuda.manual_seed_all(0)
 
     args = parse()
