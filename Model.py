@@ -234,9 +234,11 @@ class ACGAN(BaseModel):
     def load(self, generator_name: str, discriminator_name: str) -> None:
         if generator_name:
             self.generator = torch.load(generator_name)
+            self.generator_optimizer.param_groups[0]['params'] = self.generator.parameters()
 
         if discriminator_name:
             self.discriminator = torch.load(discriminator_name)
+            self.discriminator_optimizer.param_groups[0]['params'] = self.discriminator.parameters()
 
 
 class WGAN(BaseModel):
@@ -453,6 +455,8 @@ class WGAN(BaseModel):
     def load(self, generator_name: str, discriminator_name: str) -> None:
         if generator_name:
             self.generator = torch.load(generator_name)
+            self.generator_optimizer.param_groups[0]['params'] = self.generator.parameters()
 
         if discriminator_name:
             self.discriminator = torch.load(discriminator_name)
+            self.discriminator_optimizer.param_groups[0]['params'] = self.discriminator.parameters()
