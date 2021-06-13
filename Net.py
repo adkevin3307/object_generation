@@ -402,6 +402,21 @@ class Split(nn.Module):
         return (x, logdet)
 
 
+class Preprocess(nn.Module):
+    def __init__(self) -> None:
+        super(Preprocess, self).__init__()
+
+    def forward(self, x: torch.Tensor) -> tuple:
+        logdet = - math.log(256) * x[0].numel()
+
+        return (x - 0.5, logdet)
+
+    def inverse(self, x: torch.Tensor) -> tuple:
+        logdet = math.log(256) * x[0].numel()
+
+        return (x + 0.5, logdet)
+
+
 class FlowSequential(nn.Sequential):
     def __init__(self, *args, **kwargs) -> None:
         super(FlowSequential, self).__init__(*args, **kwargs)
@@ -471,6 +486,7 @@ class Glow(nn.Module):
 
         self.output_dims = (out_channels, out_HW, out_HW)
 
+        self.preprocess = Preprocess()
         self.flowlevels = nn.ModuleList([FlowLevel(in_channels * (2 ** i), hidden_channels, depth, lu_factorize) for i in range(n_levels)])
         self.squeeze = Squeeze()
         self.flowsteps = FlowSequential(*[FlowStep(out_channels, hidden_channels, lu_factorize) for _ in range(depth)])
@@ -487,7 +503,8 @@ class Glow(nn.Module):
         condition = condition.view(*condition.shape, 1, 1).repeat(1, 1, 8, 8)
 
         total_z = []
-        total_logdet = 0.0
+
+        x, total_logdet = self.preprocess(x)
 
         for module in self.flowlevels:
             x, z, logdet = module(x)
@@ -527,6 +544,9 @@ class Glow(nn.Module):
 
             x, logdet = module.inverse(x, z)
             total_logdet += logdet
+
+        x, logdet = self.preprocess.inverse(x)
+        total_logdet += logdet
 
         return (x, total_logdet)
 
