@@ -303,9 +303,9 @@ class AffineCoupling(nn.Module):
         z1, z2 = z.chunk(2, dim=1)
 
         output = self.conv_1(z2)[0]
-        output = nn.ReLU(output)
+        output = self.relu_1(output)
         output = self.conv_2(output)[0]
-        output = nn.ReLU(output)
+        output = self.relu_2(output)
         output = self.conv_3(output) * self.log_scale_factor.exp()
 
         t = output[:, 0::2]
@@ -483,7 +483,9 @@ class Glow(nn.Module):
     def base_distribution(self):
         return D.Normal(self.base_dist_mean, self.base_dist_var)
 
-    def forward(self, x: torch.Tensor) -> tuple:
+    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> tuple:
+        condition = condition.view(*condition.shape, 1, 1).repeat(1, 1, 8, 8)
+
         total_z = []
         total_logdet = 0.0
 
@@ -493,7 +495,7 @@ class Glow(nn.Module):
             total_z.append(z)
             total_logdet += logdet
 
-        x = self.squeeze(x)
+        x = self.squeeze(x + condition)
         z, logdet = self.flowsteps(x)
 
         total_logdet += logdet
@@ -505,7 +507,9 @@ class Glow(nn.Module):
 
         return (total_z, total_logdet)
 
-    def inverse(self, total_z: list = None, batch_size: int = None, z_std: float = 1.0) -> tuple:
+    def inverse(self, condition: torch.Tensor, total_z: list = None, batch_size: int = None, z_std: float = 1.0) -> tuple:
+        condition = condition.view(*condition.shape, 1, 1).repeat(1, 1, 8, 8)
+
         if total_z == None:
             assert batch_size is not None
 
@@ -516,9 +520,9 @@ class Glow(nn.Module):
         x, logdet = self.flowsteps.inverse(z)
         total_logdet += logdet
 
-        x = self.squeeze.inverse(x)
+        x = self.squeeze.inverse(x) + condition
 
-        for i, module in reversed(self.flowlevels):
+        for i, module in enumerate(reversed(self.flowlevels)):
             z = z_std * (self.base_distribution.sample(x.shape).squeeze() if len(total_z) == 1 else total_z[-i - 2])
 
             x, logdet = module.inverse(x, z)
@@ -526,9 +530,9 @@ class Glow(nn.Module):
 
         return (x, total_logdet)
 
-    def log_prob(self, x, bits_per_pixel=False):
-        zs, logdet = self.forward(x)
-        prob = sum(self.base_distribution.log_prob(z).sum([1, 2, 3]) for z in zs) + logdet
+    def log_prob(self, x: torch.Tensor, condition: torch.Tensor, bits_per_pixel: bool = False) -> torch.Tensor:
+        total_z, logdet = self.forward(x, condition)
+        prob = sum(self.base_distribution.log_prob(z).sum([1, 2, 3]) for z in total_z) + logdet
 
         if bits_per_pixel:
             prob /= (math.log(2) * x[0].numel())
