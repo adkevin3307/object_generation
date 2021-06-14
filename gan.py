@@ -23,7 +23,7 @@ if __name__ == '__main__':
 
     args = parse()
 
-    train_loader, valid_loader, test_loader = load_data(args.root_folder)
+    train_loader, valid_loader, test_loader = load_data(args.root_folder, batch_size=64)
 
     evaluator = Evaluator('./weights/classifier_weight.pth')
 
