@@ -25,8 +25,6 @@ from Net import Glow
 def generate(model, condition, n_samples, z_stds):
     model.eval()
 
-    print('Generating ...', end='\r')
-
     samples = []
     for z_std in z_stds:
         sample, _ = model.inverse(condition, batch_size=n_samples, z_std=z_std)
