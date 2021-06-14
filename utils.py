@@ -25,7 +25,7 @@ def parse() -> argparse.Namespace:
     return args
 
 
-def load_data(root_folder: str) -> tuple:
+def load_data(root_folder: str, batch_size: int) -> tuple:
     train_transform = transforms.Compose([
         transforms.Resize((64, 64)),
         transforms.ToTensor(),
@@ -43,8 +43,8 @@ def load_data(root_folder: str) -> tuple:
     test_set = ICLEVRDataset(root_folder, transform=test_transform, mode='new_test')
 
     num_workers = len(os.sched_getaffinity(0))
-    train_loader = DataLoader(train_set, 64, shuffle=True, num_workers=num_workers)
-    valid_loader = DataLoader(valid_set, 64, shuffle=False, num_workers=num_workers)
-    test_loader = DataLoader(test_set, 64, shuffle=False, num_workers=num_workers)
+    train_loader = DataLoader(train_set, batch_size, shuffle=True, num_workers=num_workers)
+    valid_loader = DataLoader(valid_set, batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = DataLoader(test_set, batch_size, shuffle=False, num_workers=num_workers)
 
     return (train_loader, valid_loader, test_loader)

@@ -3,4 +3,5 @@ __pycache__/
 images*/
 weights/generator*/
 weights/discriminator*/
+weights/nf*/
 Pipfile*
