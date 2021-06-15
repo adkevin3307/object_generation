@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
     train_loader, valid_loader, test_loader = load_data(args.root_folder, batch_size=16)
 
-    net = Glow_Net(width=512, depth=32, n_levels=3, input_dims=(3, 64, 64))
+    net = Glow_Net(hidden_channels=512, depth=32, n_levels=3, input_dims=(3, 64, 64))
 
     if args.load:
         net = torch.load(args.load)

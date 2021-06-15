@@ -64,7 +64,6 @@ class ACGAN_Discriminator(nn.Module):
             *discriminator_block(64, 128),
         )
 
-        # The height and width of downsampled image
         downsample_size = image_size // 2 ** 4
 
         # Output layers
@@ -265,22 +264,22 @@ class Invertible1x1Conv(nn.Module):
 class AffineCoupling(nn.Module):
     """ Affine coupling layer; cf Glow section 3.3; RealNVP figure 2 """
 
-    def __init__(self, n_channels: int, width: int) -> None:
+    def __init__(self, n_channels: int, hidden_channels: int) -> None:
         super(AffineCoupling, self).__init__()
 
         self.conv_1 = nn.Sequential(
-            nn.Conv2d(n_channels // 2, width, kernel_size=3, padding=1, bias=False),
-            Actnorm(param_dim=(1, width, 1, 1))
+            nn.Conv2d(n_channels // 2, hidden_channels, kernel_size=3, padding=1, bias=False),
+            Actnorm(param_dim=(1, hidden_channels, 1, 1))
         )
         self.relu_1 = nn.ReLU()
 
         self.conv_2 = nn.Sequential(
-            nn.Conv2d(width, width, kernel_size=1, padding=1, bias=False),
-            Actnorm(param_dim=(1, width, 1, 1))
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, padding=1, bias=False),
+            Actnorm(param_dim=(1, hidden_channels, 1, 1))
         )
         self.relu_2 = nn.ReLU()
 
-        self.conv_3 = nn.Conv2d(width, n_channels, kernel_size=3)  # output is split into scale and shift components
+        self.conv_3 = nn.Conv2d(hidden_channels, n_channels, kernel_size=3)  # output is split into scale and shift components
 
         self.log_scale_factor = nn.Parameter(torch.zeros(n_channels, 1, 1))  # learned scale (cf RealNVP sec 4.1 / Glow official code
 
@@ -471,23 +470,23 @@ class FlowSequential(nn.Sequential):
 class FlowStep(FlowSequential):
     """ One step of Glow flow (Actnorm -> Invertible 1x1 conv -> Affine coupling); cf Glow Figure 2a """
 
-    def __init__(self, n_channels: int, width: int, lu_factorize: bool = False) -> None:
+    def __init__(self, n_channels: int, hidden_channels: int, lu_factorize: bool = False) -> None:
         super(FlowStep, self).__init__(
             Actnorm(param_dim=(1, n_channels, 1, 1)),
             Invertible1x1Conv(n_channels, lu_factorize),
-            AffineCoupling(n_channels, width)
+            AffineCoupling(n_channels, hidden_channels)
         )
 
 
 class FlowLevel(nn.Module):
     """ One depth level of Glow flow (Squeeze -> FlowStep x K -> Split); cf Glow figure 2b """
 
-    def __init__(self, n_channels: int, width: int, depth: int, lu_factorize: bool = False) -> None:
+    def __init__(self, n_channels: int, hidden_channels: int, depth: int, lu_factorize: bool = False) -> None:
         super(FlowLevel, self).__init__()
 
         # network layers
         self.squeeze = Squeeze()
-        self.flowsteps = FlowSequential(*[FlowStep(4 * n_channels, width, lu_factorize) for _ in range(depth)])
+        self.flowsteps = FlowSequential(*[FlowStep(4 * n_channels, hidden_channels, lu_factorize) for _ in range(depth)])
         self.split = Split(4 * n_channels)
 
     def forward(self, x: torch.Tensor) -> tuple:
@@ -512,7 +511,7 @@ class FlowLevel(nn.Module):
 class Glow_Net(nn.Module):
     """ Glow multi-scale architecture with depth of flow K and number of levels L; cf Glow figure 2; section 3"""
 
-    def __init__(self, width: int, depth: int, n_levels: int, input_dims: tuple = (3, 64, 64), lu_factorize: bool = False) -> None:
+    def __init__(self, hidden_channels: int, depth: int, n_levels: int, input_dims: tuple = (3, 64, 64), lu_factorize: bool = False) -> None:
         super(Glow_Net, self).__init__()
         # calculate output dims
         in_channels, H, W = input_dims
@@ -525,9 +524,9 @@ class Glow_Net(nn.Module):
         self.preprocess = Preprocess()
 
         # network layers cf Glow figure 2b: (Squeeze -> FlowStep x depth -> Split) x n_levels -> Squeeze -> FlowStep x depth
-        self.flowlevels = nn.ModuleList([FlowLevel(in_channels * (2 ** i), width, depth, lu_factorize) for i in range(n_levels)])
+        self.flowlevels = nn.ModuleList([FlowLevel(in_channels * (2 ** i), hidden_channels, depth, lu_factorize) for i in range(n_levels)])
         self.squeeze = Squeeze()
-        self.flowstep = FlowSequential(*[FlowStep(out_channels, width, lu_factorize) for _ in range(depth)])
+        self.flowstep = FlowSequential(*[FlowStep(out_channels, hidden_channels, lu_factorize) for _ in range(depth)])
 
         # gaussianize the final z output; initialize to identity
         self.gaussianize = Gaussianize(out_channels)
