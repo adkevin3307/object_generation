@@ -509,11 +509,11 @@ class FlowLevel(nn.Module):
         return (x, logdet)
 
 
-class Glow(nn.Module):
+class Glow_Net(nn.Module):
     """ Glow multi-scale architecture with depth of flow K and number of levels L; cf Glow figure 2; section 3"""
 
     def __init__(self, width: int, depth: int, n_levels: int, input_dims: tuple = (3, 64, 64), lu_factorize: bool = False) -> None:
-        super(Glow, self).__init__()
+        super(Glow_Net, self).__init__()
         # calculate output dims
         in_channels, H, W = input_dims
         out_channels = int(in_channels * (4 ** (n_levels + 1)) / (2 ** n_levels))  # each Squeeze results in 4x in_channels (cf RealNVP section 3.6); each Split in 1/2x in_channels
