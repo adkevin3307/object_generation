@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 import torch.cuda as cuda
 import torch.backends.cudnn as cudnn
 from torchvision.utils import save_image, make_grid
@@ -22,19 +23,19 @@ from Net import Glow
 
 
 @torch.no_grad()
-def generate(model, condition, n_samples, z_stds):
+def generate(model: Glow, condition: torch.Tensor, n_samples: int, z_stds: list) -> torch.Tensor:
     model.eval()
 
     samples = []
     for z_std in z_stds:
-        sample, _ = model.inverse(condition, batch_size=n_samples, z_std=z_std)
+        sample, _ = model.inverse(None, condition, batch_size=n_samples, z_std=z_std)
 
         samples.append(sample)
 
-    return torch.cat(samples, 0)
+    return torch.cat(samples, dim=0)
 
 
-def train(model, train_loader, valid_loader, optimizer, evaluator, args):
+def train(model: Glow, train_loader: DataLoader, valid_loader: DataLoader, optimizer: optim.Optimizer, evaluator: Evaluator, args):
     for epoch in range(args.start_epoch, args.start_epoch + args.n_epochs):
         model.train()
 
