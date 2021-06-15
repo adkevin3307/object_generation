@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 
-from utils import parse, load_data
+from utils import parse_gan, load_data
 from Net import ACGAN_Generator, ACGAN_Discriminator, WGAN_Generator, WGAN_Discriminator
 from Evaluator import Evaluator
 from Model import ACGAN, WGAN
@@ -21,7 +21,7 @@ if __name__ == '__main__':
     cudnn.deterministic = True
     torch.cuda.manual_seed_all(0)
 
-    args = parse()
+    args = parse_gan()
 
     train_loader, valid_loader, test_loader = load_data(args.root_folder, batch_size=64)
 

@@ -12,7 +12,7 @@ import torch
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 
-from utils import load_data
+from utils import parse_nf, load_data
 from Evaluator import Evaluator
 from Net import Glow_Net
 from Model import Glow
@@ -28,15 +28,7 @@ if __name__ == '__main__':
     cudnn.deterministic = True
     torch.cuda.manual_seed_all(seed)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--root_folder', type=str, required=True)
-    parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--warmup_epochs', type=int, default=2)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--grad_norm_clip', default=50.0, type=float)
-    parser.add_argument('--trainable', action='store_true')
-    parser.add_argument('--load', type=str, default=None)
-    args = parser.parse_args()
+    args = parse_nf()
 
     train_loader, valid_loader, test_loader = load_data(args.root_folder, batch_size=16)
 
